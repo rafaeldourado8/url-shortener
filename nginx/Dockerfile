@@ -10,7 +10,7 @@ RUN npm install
 COPY frontend/ .
 
 # CORREÇÃO AQUI: Define o IP público da sua EC2
-ENV VITE_API_URL="http://100.31.7.61"
+ENV VITE_API_URL="https://shorturlv1.online"
 
 RUN npm run build
 
