@@ -9,13 +9,25 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS para o frontend
+# -----------------------------------------------------------------------------
+# SEGURANÇA: Configuração de CORS (Cross-Origin Resource Sharing)
+# -----------------------------------------------------------------------------
+# Bloqueia qualquer requisição que não venha destes domínios exatos.
+# Isso impede que sites maliciosos usem a sessão do usuário para fazer ações.
+origins = [
+    "http://localhost",               # Frontend local (sem porta, se houver proxy)
+    "http://localhost:5173",          # Frontend local (Vite default)
+    "http://localhost:80",            # Nginx local
+    "https://shorturlv1.online",      # Domínio de Produção
+    "https://www.shorturlv1.online"   # Subdomínio www
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Em produção, especifique os domínios permitidos
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=origins,            # Apenas origens da lista acima
+    allow_credentials=True,           # Permite cookies/sessões
+    allow_methods=["GET", "POST", "OPTIONS"], # Bloqueia DELETE/PUT se não usados
+    allow_headers=["*"],              # Permite headers comuns (Content-Type, etc)
 )
 
 @app.on_event("startup")
