@@ -1,0 +1,13 @@
+name: Debug Actions
+
+on:
+  push:
+    branches: ["master"]
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hello World
+        run: echo "O GitHub Actions está vivo e funcionando!"
