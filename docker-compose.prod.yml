@@ -3,15 +3,14 @@ version: '3.8'
 services:
   # --- API Backend ---
   app:
-    build: 
-      context: ./backend
-      dockerfile: Dockerfile
-    image: url-shortener-backend:latest
+    # NÃO buildamos mais aqui. Baixamos a imagem pronta.
+    image: ghcr.io/${GITHUB_USERNAME}/url-shortener-backend:latest
     container_name: shortener_api
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 --proxy-headers
     restart: always
     ports:
       - "8000:8000"
+    # O arquivo .env continua necessário para as credenciais do banco/redis
     env_file:
       - ./backend/.env
     environment:
@@ -27,17 +26,16 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # --- Nginx (Load Balancer + Frontend Host) ---
+  # --- Nginx (Load Balancer + Frontend Estático) ---
   nginx:
-    build:
-      context: .               # <--- MUDANÇA CRÍTICA: Contexto agora é a raiz
-      dockerfile: nginx/Dockerfile
-    image: url-shortener-nginx:latest
+    # A imagem do Nginx já virá com o React buildado dentro dela
+    image: ghcr.io/${GITHUB_USERNAME}/url-shortener-nginx:latest
     container_name: shortener_nginx
     restart: always
     ports:
       - "80:80"
     volumes:
+      # Continuamos montando a config para permitir ajustes rápidos sem rebuild
       - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - app
