@@ -1,31 +1,29 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+import os
+
 from app.core.database import get_db, get_read_db
 from app.repositories.url_repository import URLRepository
 from app.services.url_service import URLService
 from app.schemas.url import URLCreate, URLResponse
+from app.core.keygen import generate_short_key  # Certifique-se de ter criado este arquivo
 
 router = APIRouter()
+
+# Pega a URL base dos Secrets/Env (ex: https://jsaxac.com.br)
+# Se não estiver definida, usa localhost como fallback
+BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 
 # -----------------------------------------------------------------------------
 # Dependency Injection Factories
 # -----------------------------------------------------------------------------
 
 async def get_write_service(db: AsyncSession = Depends(get_db)) -> URLService:
-    """
-    Fornece uma instância de URLService conectada ao banco MASTER (Escrita).
-    Usado para operações que alteram dados (POST, PUT, DELETE).
-    """
     repo = URLRepository(db)
     return URLService(repo)
 
 async def get_read_service(db: AsyncSession = Depends(get_read_db)) -> URLService:
-    """
-    Fornece uma instância de URLService conectada a uma RÉPLICA (Leitura).
-    Usado para operações de apenas leitura (GET).
-    O Load Balancing entre as réplicas acontece dentro de 'get_read_db'.
-    """
     repo = URLRepository(db)
     return URLService(repo)
 
@@ -34,30 +32,46 @@ async def get_read_service(db: AsyncSession = Depends(get_read_db)) -> URLServic
 # -----------------------------------------------------------------------------
 
 @router.post(
-    "/shorten", 
+    "/urls",  # Alterado para plural seguindo boas práticas REST
     response_model=URLResponse, 
     status_code=status.HTTP_201_CREATED
 )
-async def shorten_url(
+async def create_short_url(
     item: URLCreate, 
-    service: URLService = Depends(get_write_service)
+    db: AsyncSession = Depends(get_db)
 ):
     """
-    Cria uma nova URL encurtada.
+    Cria uma nova URL encurtada com hash curto e bonito (Sqids).
     
     Fluxo:
-    1. Recebe a URL longa.
-    2. Verifica Bloom Filter (opcional).
-    3. Persiste no Banco MASTER (Write).
-    4. Atualiza Cache (Redis).
-    5. Retorna URL curta.
+    1. Persiste a URL original no banco para obter um ID único (Sequencial).
+    2. Gera um código Sqids (ex: '8kMx9') baseado nesse ID.
+    3. Atualiza o registro no banco com esse código.
+    4. Retorna a URL completa com HTTPS.
     """
     try:
-        short_url = await service.shorten_url(str(item.url))
-        return URLResponse(short_url=short_url, original_url=str(item.url))
+        # 1. Instancia o repositório diretamente para ter controle fino da transação
+        repo = URLRepository(db)
+        
+        # 2. Cria apenas com a URL original para gerar o ID
+        new_url = await repo.create(str(item.url))
+        
+        # 3. Gera a chave bonita baseada no ID numérico (ex: ID 55 -> 'a9Xk2')
+        code = generate_short_key(new_url.id)
+        
+        # 4. Atualiza o banco com a chave gerada
+        await repo.update_short_key(new_url.id, code)
+        
+        # 5. Monta a URL final usando o domínio HTTPS configurado
+        full_short_url = f"{BASE_URL}/{code}"
+        
+        return URLResponse(
+            short_url=full_short_url,
+            original_url=str(item.url)
+        )
+        
     except Exception as e:
-        # Em produção, logar o erro real aqui
-        print(f"Error shortening URL: {str(e)}")
+        print(f"Error creating short URL: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
             detail="Erro ao processar a solicitação."
@@ -70,18 +84,13 @@ async def redirect_to_url(
 ):
     """
     Redireciona para a URL original.
-    
-    Fluxo:
-    1. Verifica Cache (Redis). Se achar, retorna imediatamente (rápido).
-    2. Se não achar (Cache Miss), consulta uma RÉPLICA de Banco de Dados (Read).
-    3. Se achar no banco, popula o Cache e redireciona.
-    4. Se não achar em lugar nenhum, 404.
     """
+    # A lógica de leitura permanece a mesma (Cache -> Banco -> 404)
     original_url = await service.get_original_url(short_key)
     
     if original_url:
-        # Status 301 (Moved Permanently) é melhor para SEO e cache de navegador
-        # Status 302/307 (Temporary) é melhor se você quiser trackear cliques sempre no backend
+        # 301 = Permanente (Melhor para SEO e Cache de navegador)
+        # 302 = Temporário (Melhor se você precisa contar cliques com precisão absoluta no server)
         return RedirectResponse(url=original_url, status_code=301)
     
     raise HTTPException(status_code=404, detail="URL not found")

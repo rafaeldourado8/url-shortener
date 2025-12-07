@@ -3,21 +3,18 @@ version: '3.8'
 services:
   # --- API Backend ---
   app:
-    # NÃO buildamos mais aqui. Baixamos a imagem pronta.
+    # Baixa a imagem construída pelo GitHub Actions
     image: ghcr.io/${GITHUB_USERNAME}/url-shortener-backend:latest
     container_name: shortener_api
+    # Comando de inicialização do Uvicorn
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 --proxy-headers
     restart: always
     ports:
       - "8000:8000"
-    # O arquivo .env continua necessário para as credenciais do banco/redis
+    # Carrega as variáveis do arquivo .env da pasta backend
     env_file:
       - ./backend/.env
-    environment:
-      - DATABASE_WRITE_URL=${DATABASE_WRITE_URL}
-      - DATABASE_READ_URLS=${DATABASE_READ_URLS}
-      - REDIS_URL=${REDIS_URL}
-      - BASE_URL=${BASE_URL}
+    # Reduzimos a redundância removendo a seção 'environment' que conflitava
     networks:
       - backend_network
     logging:
@@ -26,17 +23,20 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # --- Nginx (Load Balancer + Frontend Estático) ---
+  # --- Nginx (Load Balancer + SSL) ---
   nginx:
-    # A imagem do Nginx já virá com o React buildado dentro dela
+    # A imagem do Nginx contendo o Frontend React buildado
     image: ghcr.io/${GITHUB_USERNAME}/url-shortener-nginx:latest
     container_name: shortener_nginx
     restart: always
     ports:
-      - "80:80"
+      - "80:80"   # HTTP (Redireciona para HTTPS)
+      - "443:443" # HTTPS (Seguro)
     volumes:
-      # Continuamos montando a config para permitir ajustes rápidos sem rebuild
+      # Monta a configuração do Nginx
       - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      # IMPORTANTE: Monta os certificados gerados no Passo 2 para dentro do container
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - app
     networks:
@@ -47,7 +47,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # --- Redis (Cache Local) ---
+  # --- Redis (Cache) ---
   redis:
     image: redis:7-alpine
     container_name: shortener_redis
